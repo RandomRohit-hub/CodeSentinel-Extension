@@ -6,14 +6,14 @@
 
 Algo-Sentry is an AI-powered mentor for Data Structures & Algorithms practice inside VS Code. It watches the code you write in real time, sends it to a FastAPI backend for analysis, and gives you gentle nudges about patterns, complexity, and possible optimizations.
 
-## Features (Phase 1–9 implemented)
+### 🚀 Features
 
-- **Real-time monitoring**: Listens to document changes and periodically sends the active file content to your backend (with debounce).
-- **AI backend integration**: Sends `code`, `language`, `fileName`, and `difficulty` to your FastAPI `/analyze` endpoint and expects back fields such as `pattern`, `complexity`, `spaceComplexity`, `suggestion`, `question`, and `concept`.
-- **Popup feedback**: Shows questions/suggestions in VS Code notifications with `Answer`, `Skip`, and `Hint` options.
-- **Personality modes**: `genz`, `mentor`, and `interview` personalities change the tone of messages.
-- **Difficulty settings**: `beginner`, `intermediate`, and `advanced` affect the payload sent to the backend.
-- **Status bar display**: Shows detected pattern and complexity in the status bar.
+*   **Intelligent Code Understanding**: Uses **Google Gemini 1.5** to deeply analyze algorithms, detect concepts (DP, Graph Traversal, Recursion, etc.), and calculate Big-O complexity.
+*   **Fast dynamic quizzes**: Integrated with **Groq** for near-instant MCQ generation based on your live code.
+*   **Context-Aware**: Analyzes the function or block you're currently working on.
+*   **MCQ Quiz System**: Tests your knowledge with relevant multiple-choice questions.
+*   **Smart Triggers**: Only prompts you when it detects meaningful algorithm patterns.
+*   **Customizable Modes**: Choose between "Gen-Z", "Mentor", and "Interview" personalities.
 - **Sidebar webview panel**: A modern-looking Algo-Sentry panel that explains what the extension is doing and what patterns it focuses on.
 
 ## Requirements
@@ -24,15 +24,23 @@ Algo-Sentry is an AI-powered mentor for Data Structures & Algorithms practice in
 
 ### Smarter MCQs with Google Gemini or OpenAI
 
-The backend can use **Google Gemini** or **OpenAI** to generate code-aware multiple-choice questions. Without an API key it falls back to a built-in MCQ bank.
-
-- **Google Gemini (recommended):** Get an API key from [Google AI Studio](https://aistudio.google.com/apikey), then:
-  ```bash
-  cd backend_stub
-  pip install -r requirements.txt
-  set GOOGLE_API_KEY=your-gemini-api-key
-  uvicorn main:app --reload --port 8000
-  ```
+1.  Navigate to the `backend_stub` directory:
+    ```bash
+    cd backend_stub
+    ```
+2.  Install the required Python packages:
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  Set up your API keys in a `.env` file inside `backend_stub`:
+    ```env
+    GOOGLE_API_KEY=your-gemini-api-key
+    GROQ_API_KEY=your-groq-api-key
+    ```
+4.  Start the FastAPI server:
+    ```bash
+    uvicorn main:app --reload --port 8000
+    ```
 - **OpenAI:** Set `OPENAI_API_KEY` instead; the backend will use it if `GOOGLE_API_KEY` is not set.
 - **Force provider:** Set `LLM_PROVIDER=google` or `LLM_PROVIDER=openai` to use only that API.
 

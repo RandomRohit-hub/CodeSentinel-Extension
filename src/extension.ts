@@ -16,18 +16,21 @@ interface AlgoSentryConfig {
 }
 
 interface AlgoSentryAnalysisResponse {
-  pattern?: string;
-  complexity?: string;
-  spaceComplexity?: string;
-  suggestion?: string;
-  question?: string;
-  concept?: string;
-  tip?: string;
-  options?: string[];
-  correct_index?: number;
-  correctIndex?: number;
-  /** Shown when user picks wrong MCQ option */
-  explanation?: string;
+  concept: string;
+  complexity: string;
+  confidence: number;
+  is_meaningful_dsa: boolean;
+}
+
+interface AlgoSentryQuizResponse {
+  question: string;
+  options: string[];
+  correct: string;
+  explanation: string;
+}
+
+interface AlgoSentryValidateResponse {
+  feedback: string;
 }
 
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -91,19 +94,6 @@ function ensureStatusBarItem(): vscode.StatusBarItem {
     statusBarItem.show();
   }
   return statusBarItem;
-}
-
-function personalityWrap(personality: AlgoSentryPersonality, base: string): string {
-  switch (personality) {
-    case "genz":
-      return `yo coder 👀 ${base}`;
-    case "mentor":
-      return `Mentor tip: ${base}`;
-    case "interview":
-      return `Interviewer asks: ${base}`;
-    default:
-      return base;
-  }
 }
 
 /**
@@ -210,55 +200,33 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
       cursorLine,
       codeSnippet: codeSnippet || undefined,
       recent_questions: recentQuestions.length > 0 ? recentQuestions : undefined,
-    }, { timeout: 15000 });
+      personality: cfg.personality,
+    }, { timeout: 25000 }); // Increased timeout for AI reasoning
 
     const data = response.data || {};
-    log(`Backend response: pattern=${data.pattern ?? data.concept}, question=${!!data.question}, suggestion=${!!data.suggestion}`);
+    const concept = data.concept || "generic";
+    const complexity = data.complexity || "O(1)";
+    const isMeaningfulPattern = data.is_meaningful_dsa || false;
 
-    const pattern = data.pattern ?? data.concept;
-    const complexity = data.complexity;
-    const suggestion = data.suggestion;
-    const question = data.question;
-    const options = data.options;
-    const correctIndex = data.correct_index ?? data.correctIndex;
-    const explanation = data.explanation;
+    log(`Layer 1 response: concept=${concept}, complexity=${complexity}, meaningful=${isMeaningfulPattern}`);
 
     if (cfg.enableStatusBar) {
-      const parts: string[] = [];
-      if (pattern) {
-        parts.push(pattern);
-      }
-      if (complexity) {
-        parts.push(`Time: ${complexity}`);
-      }
-      if (data.spaceComplexity) {
-        parts.push(`Space: ${data.spaceComplexity}`);
-      }
-      status.text = parts.length
-        ? `Algo-Sentry: ${parts.join(" | ")}`
-        : "Algo-Sentry: Ready";
+      status.text = `Algo-Sentry: ${concept} | Time: ${complexity}`;
       status.show();
     }
 
-    const hasQuiz = !!(question || suggestion);
-    const isMeaningfulPattern = !!pattern && (
-      pattern.toLowerCase() !== "code snippet" &&
-      pattern.toLowerCase() !== "general" &&
-      pattern.toLowerCase() !== "time complexity"
-    );
-
     let userWantsQuiz = false;
 
-    if (forceShowQuiz && hasQuiz) {
+    if (forceShowQuiz && isMeaningfulPattern) {
       userWantsQuiz = true;
-    } else if (hasQuiz && isMeaningfulPattern) {
+    } else if (isMeaningfulPattern) {
       if (questionsDisabledForSession) {
         log("Quiz skipped — questions disabled for this session.");
         return;
       }
       const cooldownMs = cfg.quizCooldownSeconds * 1000;
       const now = Date.now();
-      if (now - lastQuizPromptTime < cooldownMs) {
+      if (now - lastQuizPromptTime < cooldownMs && !forceShowQuiz) {
         log(`Quiz prompt skipped — cooldown (${cfg.quizCooldownSeconds}s) not elapsed.`);
         return;
       }
@@ -281,82 +249,67 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
         lastQuizPromptTime = now;
         return;
       }
-      if (userChoice !== "Yes, ask me") {
-        return;
-      }
-
-      lastQuizPromptTime = now;
-      userWantsQuiz = true;
-    }
-
-    if (hasQuiz && !isMeaningfulPattern && !forceShowQuiz) {
-      log("Quiz skipped — no meaningful algorithm pattern detected.");
-      return;
-    }
-
-    if (question && userWantsQuiz) pushRecentQuestion(question);
-    if (hasQuiz && !userWantsQuiz) return;
-
-    const isMcq = Array.isArray(options) && options.length > 0 && typeof correctIndex === "number" && correctIndex >= 0 && correctIndex < options.length;
-
-    if (isMcq && question) {
-      const intro = cfg.personality === "genz" ? "Quick quiz 👀" : cfg.personality === "mentor" ? "Quick question:" : "Question:";
-      const quizTitle = pattern ? `Looks like you're using ${pattern.toLowerCase()}.\n\n${question}` : question;
-      const message = `${intro}\n${quizTitle}`;
-      const choice = await vscode.window.showQuickPick(
-        options.map((opt, i) => ({ label: opt, index: i })),
-        {
-          title: "Algo-Sentry",
-          placeHolder: message,
-          matchOnDescription: false,
-          ignoreFocusOut: true,
-        }
-      );
-      if (choice !== undefined) {
-        if (choice.index === correctIndex) {
-          vscode.window.showInformationMessage(
-            personalityWrap(cfg.personality, "Correct! 🎉")
-          );
-        } else {
-          const correctAnswer = options[correctIndex];
-          const wrongMsg = explanation
-            ? `Incorrect. Correct answer: ${correctAnswer}. ${explanation}`
-            : `Incorrect. The answer is: ${correctAnswer}`;
-          vscode.window.showWarningMessage(wrongMsg, { modal: false });
-        }
-      }
-    } else if (question || suggestion) {
-      const intro = pattern ? `Looks like you're using ${pattern.toLowerCase()}. Quick question: ` : "";
-      const text = intro + (question || suggestion || "");
-      const infoMessage = personalityWrap(cfg.personality, text);
-      const answer = await vscode.window.showInformationMessage(infoMessage, "Answer", "Skip", "Show Hint");
-
-      if (answer === "Show Hint" && suggestion) {
-        vscode.window.showInformationMessage(personalityWrap(cfg.personality, suggestion));
-      } else if (answer === "Answer") {
-        const input = await vscode.window.showInputBox({
-          title: "Algo-Sentry: Your Answer",
-          prompt: "Share your reasoning or complexity estimate.",
-          placeHolder: "e.g., O(n^2) because of the nested loops",
-        });
-        if (input && input.trim()) {
-          vscode.window.showInformationMessage(
-            personalityWrap(
-              cfg.personality,
-              "nice, keep training that algo brain 🧠"
-            )
-          );
-        }
+      if (userChoice === "Yes, ask me") {
+        lastQuizPromptTime = now;
+        userWantsQuiz = true;
       }
     } else {
-      log("Backend returned no question/suggestion — showing confirmation.");
-      vscode.window.showInformationMessage(
-        "Algo-Sentry: Analysis done. No quiz for this snippet — try adding loops, recursion, or data structures.",
-        "Analyze again"
-      ).then((choice) => {
-        if (choice === "Analyze again") analyzeActiveDocument();
-      });
+      log("Quiz skipped — no meaningful algorithm pattern detected.");
     }
+
+    if (userWantsQuiz) {
+      // Prompt user with loading status
+      status.text = "Algo-Sentry: Generating Quiz...";
+      
+      const quizRes = await axios.post<AlgoSentryQuizResponse>(`${cfg.backendUrl.replace("/analyze", "")}/generate_quiz`, {
+          code,
+          concept,
+          complexity,
+          language: document.languageId,
+          recent_questions: recentQuestions.length > 0 ? recentQuestions : undefined,
+          personality: cfg.personality,
+      }, { timeout: 25000 });
+      
+      const quiz = quizRes.data;
+      if (quiz && quiz.question && quiz.options) {
+        pushRecentQuestion(quiz.question);
+        
+        const intro = cfg.personality === "genz" ? "Quick quiz 👀" : cfg.personality === "mentor" ? "Quick question:" : "Question:";
+        const quizTitle = `Looks like you're using ${concept}.\n\n${quiz.question}`;
+        
+        const choice = await vscode.window.showQuickPick(
+          quiz.options.map((opt) => ({ label: opt })),
+          {
+            title: "Algo-Sentry",
+            placeHolder: `${intro}\n${quizTitle}`,
+            matchOnDescription: false,
+            ignoreFocusOut: true,
+          }
+        );
+        
+        if (choice) {
+          status.text = "Algo-Sentry: Validating...";
+          const valRes = await axios.post<AlgoSentryValidateResponse>(`${cfg.backendUrl.replace("/analyze", "")}/validate`, {
+              user_answer: choice.label,
+              correct_answer: quiz.correct,
+              question_context: { question: quiz.question },
+              code: codeSnippet,
+              personality: cfg.personality,
+          }, { timeout: 15000 });
+          
+          vscode.window.showInformationMessage(`Algo-Sentry 🤖\n${valRes.data.feedback}`);
+          status.text = "Algo-Sentry: Ready";
+        }
+      }
+    } else if (forceShowQuiz && !isMeaningfulPattern) {
+        vscode.window.showInformationMessage(
+          "Algo-Sentry: Analysis done. No meaningful DSA concept detected here for a quiz.",
+          "Analyze again"
+        ).then((choice) => {
+          if (choice === "Analyze again") analyzeActiveDocument();
+        });
+    }
+
   } catch (err: any) {
     log(`Backend error: ${err?.message ?? err}`);
     if (cfg.enableStatusBar) {
@@ -405,8 +358,8 @@ function getWebviewHtml(cfg: AlgoSentryConfig): string {
     cfg.personality === "genz"
       ? "Gen-Z"
       : cfg.personality === "mentor"
-      ? "Mentor"
-      : "Interview";
+        ? "Mentor"
+        : "Interview";
 
   return `<!DOCTYPE html>
 <html lang="en">

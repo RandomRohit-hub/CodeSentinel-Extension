@@ -1,6 +1,5 @@
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
-# Google Gemini (recommended for smarter, code-aware MCQs)
 google-generativeai>=0.8.0
-# Optional: OpenAI for MCQs if you prefer or no Google key
 openai>=1.0.0
+python-dotenv>=1.0.0
