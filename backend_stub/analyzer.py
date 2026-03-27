@@ -1,11 +1,11 @@
 import ast
 import re
+from typing import List
 
 def analyze_code(code: str, language: str) -> dict:
     """
     Layer 1: Fast Rule-Based Analyzer.
-    Runs in <10ms. Does not call LLMs.
-    Output: { "concept": "...", "complexity": "...", "confidence": float }
+    Output: { "features": ["dict_init", "nested_loop", ...], "confidence": float, "concept": str }
     """
     lang = language.lower() if language else "python"
     
@@ -15,156 +15,162 @@ def analyze_code(code: str, language: str) -> dict:
         return _analyze_regex_heuristics(code)
 
 def _analyze_python_ast(code: str) -> dict:
+    features = set()
+    
     try:
         tree = ast.parse(code)
     except SyntaxError:
-        return _analyze_regex_heuristics(code)  # Fallback if invalid python code snippet
+        return _analyze_regex_heuristics(code)  # Fallback if invalid snippet
         
-    concept = "generic"
-    complexity = "O(1)"
-    confidence = 0.5
-    
-    has_loop = False
-    has_nested_loop = False
-    has_recursion = False
-    has_hash_map = False
-    
     class Visitor(ast.NodeVisitor):
         def __init__(self):
-            self.loops = 0
-            self.max_depth = 0
             self.current_depth = 0
-            self.has_dict = False
             self.func_name = None
-            self.recursive_calls = 0
 
         def visit_FunctionDef(self, node):
             self.func_name = node.name
+            features.add("function_def")
             self.generic_visit(node)
 
         def visit_Call(self, node):
-            if isinstance(node.func, ast.Name) and self.func_name and node.func.id == self.func_name:
-                self.recursive_calls += 1
+            if isinstance(node.func, ast.Name):
+                if self.func_name and node.func.id == self.func_name:
+                    features.add("recursion")
+                if node.func.id == "set":
+                    features.add("set_init")
+                if node.func.id == "dict":
+                    features.add("dict_init")
+                if node.func.id == "list":
+                    features.add("list_init")
+                if node.func.id == "sorted":
+                    features.add("sorting")
+            elif isinstance(node.func, ast.Attribute):
+                if node.func.attr == "append":
+                    features.add("append_operation")
+                if node.func.attr == "sort":
+                    features.add("sorting")
             self.generic_visit(node)
 
         def visit_Dict(self, node):
-            self.has_dict = True
+            features.add("dict_init")
+            self.generic_visit(node)
+
+        def visit_Set(self, node):
+            features.add("set_init")
+            self.generic_visit(node)
+            
+        def visit_List(self, node):
+            features.add("list_init")
             self.generic_visit(node)
 
         def visit_For(self, node):
-            self.loops += 1
+            features.add("loop")
             self.current_depth += 1
-            self.max_depth = max(self.max_depth, self.current_depth)
+            if self.current_depth > 1:
+                features.add("nested_loop")
             self.generic_visit(node)
             self.current_depth -= 1
 
         def visit_While(self, node):
-            self.loops += 1
+            features.add("while_loop")
             self.current_depth += 1
-            self.max_depth = max(self.max_depth, self.current_depth)
+            if self.current_depth > 1:
+                features.add("nested_loop")
             self.generic_visit(node)
             self.current_depth -= 1
+            
+        def visit_Compare(self, node):
+            features.add("condition_compare")
+            self.generic_visit(node)
+            
+        def visit_Subscript(self, node):
+            features.add("indexing")
+            self.generic_visit(node)
+            
+        def visit_Break(self, node):
+            features.add("break_statement")
+            self.generic_visit(node)
 
     visitor = Visitor()
     visitor.visit(tree)
     
-    has_nested_loop = visitor.max_depth > 1
-    has_recursion = visitor.recursive_calls > 0
-    has_hash_map = visitor.has_dict
-    
-    # Simple semantic heuristics based on text since AST for "binary search" is complex
     code_lower = code.lower()
     if 'low' in code_lower and 'high' in code_lower and 'mid' in code_lower and ('+' in code_lower and '/' in code_lower):
-        concept = "binary_search"
-        complexity = "O(log n)"
-        confidence = 0.95
-    elif has_recursion:
-        if 'memo' in code_lower or 'cache' in code_lower or 'dp' in code_lower:
-            concept = "dynamic_programming"
-            complexity = "O(n) or O(n^2)"
-            confidence = 0.9
-        else:
-            concept = "recursion"
-            complexity = "O(b^d)" # branching factor
-            confidence = 0.8
-    elif has_nested_loop:
-        if 'dp' in code_lower or 'cache' in code_lower or 'memo' in code_lower:
-            concept = "dynamic_programming"
-            complexity = "O(n^2)"
-            confidence = 0.85
-        else:
-            concept = "nested_loops"
-            complexity = "O(n^2)"
-            confidence = 0.9
-    elif visitor.loops > 0:
-        if 'left' in code_lower and 'right' in code_lower and ('window' in code_lower or 'max' in code_lower):
-            concept = "sliding_window"
-            complexity = "O(n)"
-            confidence = 0.85
-        else:
-            concept = "loops"
-            complexity = "O(n)"
-            confidence = 0.8
-    elif has_hash_map:
-        concept = "hash_maps"
-        complexity = "O(1) lookup"
-        confidence = 0.85
+        features.add("binary_search_mid")
         
-    return {"concept": concept, "complexity": complexity, "confidence": confidence}
+    features_list = list(features)
+    
+    # Meaningful check - did we find something substantial enough for a structural question?
+    substantial_features = [f for f in features_list if f not in ["condition_compare", "indexing", "function_def"]]
+    confidence = 0.9 if substantial_features else 0.4
+    
+    primary_concept = substantial_features[0] if substantial_features else "generic"
+
+    return {
+        "features": features_list,
+        "concept": primary_concept,
+        "confidence": confidence,
+        "complexity": "O(?)" # removed explicit complexity from Layer 1; Groq will reason it
+    }
 
 def _analyze_regex_heuristics(code: str) -> dict:
     code_lower = code.lower()
+    features = set()
     
-    # Nested loops regex (crude)
+    # Loops
     loop_matches = len(re.findall(r'(for|while)\s*\(', code_lower))
-    has_nested_loop = loop_matches >= 2 # rough approximation if snippet is short
-    
-    has_recursion = re.search(r'function\s+(\w+).*?\{\s*.*?\b\1\s*\(', code_lower, re.DOTALL) is not None
-    if not has_recursion:
-        has_recursion = re.search(r'(?:public|private|protected)?\s*\w+\s+(\w+)\s*\(.*?\s*\{.*?\b\1\s*\(', code_lower, re.DOTALL) is not None
-
-    has_hash_map = 'new map(' in code_lower or 'hashmap' in code_lower or 'dict(' in code_lower or 'new set(' in code_lower
-    
-    concept = "generic"
-    complexity = "O(1)"
-    confidence = 0.5
-    
-    if 'low' in code_lower and 'high' in code_lower and 'mid' in code_lower and '/' in code_lower:
-        concept = "binary_search"
-        complexity = "O(log n)"
-        confidence = 0.95
-    elif has_recursion:
-        concept = "recursion"
-        complexity = "O(b^d)"
-        confidence = 0.8
-    elif has_nested_loop:
-        concept = "nested_loops"
-        complexity = "O(n^2)"
-        confidence = 0.85
-    elif loop_matches == 1:
-        if 'left' in code_lower and 'right' in code_lower:
-            concept = "sliding_window"
-            complexity = "O(n)"
-            confidence = 0.8
-        else:
-            concept = "loops"
-            complexity = "O(n)"
-            confidence = 0.8
-    elif has_hash_map:
-        concept = "hash_maps"
-        complexity = "O(1) lookup"
-        confidence = 0.8
+    if loop_matches > 0:
+        features.add("loop")
+        if loop_matches >= 2:
+            features.add("nested_loop")
+            
+    if 'while ' in code_lower or 'while(' in code_lower:
+        features.add("while_loop")
         
-    return {"concept": concept, "complexity": complexity, "confidence": confidence}
+    # Recursion (crude)
+    if re.search(r'function\s+(\w+).*?\{\s*.*?\b\1\s*\(', code_lower, re.DOTALL) or re.search(r'(?:public|private|protected)?\s*\w+\s+(\w+)\s*\(.*?\s*\{.*?\b\1\s*\(', code_lower, re.DOTALL):
+        features.add("recursion")
+
+    # Data Structures
+    if 'new map' in code_lower or 'hashmap' in code_lower or '{}' in code_lower:
+        features.add("dict_init")
+    if 'new set' in code_lower:
+        features.add("set_init")
+    if '[]' in code_lower or 'new array' in code_lower or 'list<' in code_lower:
+        features.add("list_init")
+        
+    # Ops
+    if '.push(' in code_lower or '.add(' in code_lower or '.append(' in code_lower:
+        features.add("append_operation")
+    if '.sort(' in code_lower:
+        features.add("sorting")
+    if 'break;' in code_lower or 'break ' in code_lower:
+        features.add("break_statement")
+    if '>' in code_lower or '<' in code_lower or '==' in code_lower:
+        features.add("condition_compare")
+    if '[' in code_lower and ']' in code_lower:
+        features.add("indexing")
+        
+    if 'low' in code_lower and 'high' in code_lower and 'mid' in code_lower and '/' in code_lower:
+        features.add("binary_search_mid")
+        
+    features_list = list(features)
+    substantial_features = [f for f in features_list if f not in ["condition_compare", "indexing", "function_def"]]
+    confidence = 0.85 if substantial_features else 0.4
+    primary_concept = substantial_features[0] if substantial_features else "generic"
+        
+    return {
+        "features": features_list,
+        "concept": primary_concept,
+        "confidence": confidence,
+        "complexity": "O(?)" 
+    }
 
 # Local test
 if __name__ == "__main__":
     test_code = """
-    def search(arr, target):
-        low, high = 0, len(arr) - 1
-        while low <= high:
-            mid = (low + high) // 2
-            if arr[mid] == target: return mid
-        return -1
+    arr = []
+    for i in range(n):
+        arr.append(i * 2)
     """
     print(analyze_code(test_code, "python"))

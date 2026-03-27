@@ -16,17 +16,14 @@ interface AlgoSentryConfig {
 }
 
 interface AlgoSentryAnalysisResponse {
+  features: string[];
   concept: string;
-  complexity: string;
   confidence: number;
   is_meaningful_dsa: boolean;
 }
 
-interface AlgoSentryQuizResponse {
-  question: string;
-  options: string[];
-  correct: string;
-  explanation: string;
+interface AlgoSentrySocraticResponse {
+  questions: string[];
 }
 
 interface AlgoSentryValidateResponse {
@@ -204,14 +201,13 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
     }, { timeout: 25000 }); // Increased timeout for AI reasoning
 
     const data = response.data || {};
-    const concept = data.concept || "generic";
-    const complexity = data.complexity || "O(1)";
+    const features = data.features || [];
     const isMeaningfulPattern = data.is_meaningful_dsa || false;
 
-    log(`Layer 1 response: concept=${concept}, complexity=${complexity}, meaningful=${isMeaningfulPattern}`);
+    log(`Layer 1 response: features=[${features.join(", ")}], meaningful=${isMeaningfulPattern}`);
 
     if (cfg.enableStatusBar) {
-      status.text = `Algo-Sentry: ${concept} | Time: ${complexity}`;
+      status.text = `Algo-Sentry: Analyzing...`;
       status.show();
     }
 
@@ -259,51 +255,57 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
 
     if (userWantsQuiz) {
       // Prompt user with loading status
-      status.text = "Algo-Sentry: Generating Quiz...";
+      status.text = "Algo-Sentry: Preparing questions...";
       
-      const quizRes = await axios.post<AlgoSentryQuizResponse>(`${cfg.backendUrl.replace("/analyze", "")}/generate_quiz`, {
+      const socraticRes = await axios.post<AlgoSentrySocraticResponse>(`${cfg.backendUrl.replace("/analyze", "")}/generate_questions`, {
           code,
-          concept,
-          complexity,
+          features,
           language: document.languageId,
           recent_questions: recentQuestions.length > 0 ? recentQuestions : undefined,
           personality: cfg.personality,
       }, { timeout: 25000 });
       
-      const quiz = quizRes.data;
-      if (quiz && quiz.question && quiz.options) {
-        pushRecentQuestion(quiz.question);
-        
-        const intro = cfg.personality === "genz" ? "Quick quiz 👀" : cfg.personality === "mentor" ? "Quick question:" : "Question:";
-        const quizTitle = `Looks like you're using ${concept}.\n\n${quiz.question}`;
-        
-        const choice = await vscode.window.showQuickPick(
-          quiz.options.map((opt) => ({ label: opt })),
-          {
-            title: "Algo-Sentry",
-            placeHolder: `${intro}\n${quizTitle}`,
-            matchOnDescription: false,
-            ignoreFocusOut: true,
+      const sData = socraticRes.data;
+      if (sData && sData.questions && sData.questions.length > 0) {
+        for (let i = 0; i < sData.questions.length; i++) {
+          const q = sData.questions[i];
+          pushRecentQuestion(q);
+          
+          const userAnswer = await vscode.window.showInputBox({
+            title: `Algo-Sentry Mentor (${i + 1}/${sData.questions.length})`,
+            prompt: q,
+            placeHolder: "Type your reasoning here (or hit ESC to cancel)...",
+            ignoreFocusOut: true
+          });
+          
+          if (!userAnswer) {
+            // User cancelled
+            break;
           }
-        );
-        
-        if (choice) {
+          
           status.text = "Algo-Sentry: Validating...";
           const valRes = await axios.post<AlgoSentryValidateResponse>(`${cfg.backendUrl.replace("/analyze", "")}/validate`, {
-              user_answer: choice.label,
-              correct_answer: quiz.correct,
-              question_context: { question: quiz.question },
+              user_answer: userAnswer,
+              question: q,
               code: codeSnippet,
+              features,
               personality: cfg.personality,
           }, { timeout: 15000 });
           
-          vscode.window.showInformationMessage(`Algo-Sentry 🤖\n${valRes.data.feedback}`);
-          status.text = "Algo-Sentry: Ready";
+          if (i < sData.questions.length - 1) {
+            const btn = await vscode.window.showInformationMessage(`Algo-Sentry 🤖\n${valRes.data.feedback}`, "Next Question");
+            if (btn !== "Next Question") {
+              break;
+            }
+          } else {
+            vscode.window.showInformationMessage(`Algo-Sentry 🤖\n${valRes.data.feedback}`);
+          }
         }
+        status.text = "Algo-Sentry: Ready";
       }
     } else if (forceShowQuiz && !isMeaningfulPattern) {
         vscode.window.showInformationMessage(
-          "Algo-Sentry: Analysis done. No meaningful DSA concept detected here for a quiz.",
+          "Algo-Sentry: Analysis done. No relevant decisions detected here for a Socratic check.",
           "Analyze again"
         ).then((choice) => {
           if (choice === "Analyze again") analyzeActiveDocument();
