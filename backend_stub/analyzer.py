@@ -132,18 +132,20 @@ def _analyze_regex_heuristics(code: str) -> dict:
         features.add("recursion")
 
     # Data Structures
-    if 'new map' in code_lower or 'hashmap' in code_lower or '{}' in code_lower:
+    if 'new map' in code_lower or 'hashmap' in code_lower or 'unordered_map' in code_lower or 'map<' in code_lower or '{}' in code_lower:
         features.add("dict_init")
-    if 'new set' in code_lower:
+    if 'new set' in code_lower or 'unordered_set' in code_lower or 'set<' in code_lower:
         features.add("set_init")
-    if '[]' in code_lower or 'new array' in code_lower or 'list<' in code_lower:
+    if '[]' in code_lower or 'new array' in code_lower or 'list<' in code_lower or 'vector<' in code_lower or 'arraylist<' in code_lower:
         features.add("list_init")
         
     # Ops
-    if '.push(' in code_lower or '.add(' in code_lower or '.append(' in code_lower:
+    if '.push(' in code_lower or '.add(' in code_lower or '.append(' in code_lower or 'push_back(' in code_lower:
         features.add("append_operation")
-    if '.sort(' in code_lower:
+    if '.sort(' in code_lower or 'collections.sort(' in code_lower or re.search(r'\bsort\(', code_lower):
         features.add("sorting")
+    if '.contains(' in code_lower or re.search(r'\bfind\(', code_lower):
+        features.add("linear_search")
     if 'break;' in code_lower or 'break ' in code_lower:
         features.add("break_statement")
     if '>' in code_lower or '<' in code_lower or '==' in code_lower:

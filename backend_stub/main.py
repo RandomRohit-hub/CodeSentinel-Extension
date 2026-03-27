@@ -43,6 +43,7 @@ class ValidateRequest(BaseModel):
     question: str
     code: str
     features: List[str]
+    language: Optional[str] = "python"
     personality: Optional[Literal["genz", "mentor", "interview"]] = "genz"
 
 class ValidateResponse(BaseModel):
@@ -67,6 +68,7 @@ SOCRATIC_PROMPT = """You are an expert DSA mentor ({personality_tone}).
 Generate 2 to 4 very short, Socratic, open-ended questions based strictly on the decisions made in the code snippet.
 
 Detected micro-features: {features}
+Detected Language: {language}
 
 Code snippet:
 ```
@@ -80,6 +82,7 @@ Requirements:
 - Ask "WHY" the code is written this way (e.g. why a list instead of a set?).
 - Ask "WHAT" happens if things change.
 - Ask "HOW" efficient it is (complexity).
+- LANGUAGE-AGNOSTIC: Your questions must NOT depend on syntax. Do not say "What does range() do?", instead ask "What is the time complexity of this loop?".
 - Do NOT generate generic topics ("What is DFS?"). Focus tightly on the snippet itself.
 - Return ONLY valid JSON matching this schema:
 {{
@@ -91,6 +94,7 @@ VALIDATE_PROMPT = """You are an expert DSA mentor ({personality_tone}).
 Evaluate the user's natural language answer to your Socratic question.
 
 Detected micro-features: {features}
+Language: {language}
 
 Code snippet:
 ```
@@ -146,6 +150,7 @@ async def generate_questions(req: SocraticRequest):
     client = get_groq_client()
     prompt = SOCRATIC_PROMPT.format(
         personality_tone=TONES.get(req.personality, TONES["genz"]),
+        language=req.language or "Unknown",
         features=req.features,
         code=req.code[:1500],
         recent_questions=construct_recent_context(req.recent_questions)
@@ -173,6 +178,7 @@ async def validate_endpoint(req: ValidateRequest):
     model = get_gemini_client()
     prompt = VALIDATE_PROMPT.format(
         personality_tone=TONES.get(req.personality, TONES["genz"]),
+        language=req.language or "Unknown",
         features=req.features,
         code=req.code[:1500],
         question=req.question,

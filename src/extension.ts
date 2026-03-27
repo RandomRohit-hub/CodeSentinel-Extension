@@ -289,6 +289,7 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
               question: q,
               code: codeSnippet,
               features,
+              language: document.languageId,
               personality: cfg.personality,
           }, { timeout: 15000 });
           
