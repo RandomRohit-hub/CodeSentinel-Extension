@@ -1,155 +1,90 @@
-# Algo-Sentry VS Code Extension
+# Algo-Sentry VS Code Extension 🤖
 
-> [!WARNING]
-> **Project Under Construction** 🚧
-> This project is actively being developed and is currently under construction.
+> **Transforming the way you write and understand Data Structures & Algorithms.**
 
-Algo-Sentry is an AI-powered mentor for Data Structures & Algorithms practice inside VS Code. It watches the code you write in real time, sends it to a FastAPI backend for analysis, and gives you gentle nudges about patterns, complexity, and possible optimizations.
+Algo-Sentry is not just a syntax checker—it is a **real-time, multi-language Socratic AI Mentor** living inside your VS Code. Instead of blindly pointing out errors or giving you the answers, it tracks your logic, recognizes your architectural decisions, and actively challenges your thinking with context-aware, open-ended questions.
 
-### 🚀 Features
+---
 
-*   **Intelligent Code Understanding**: Uses **Google Gemini 1.5** to deeply analyze algorithms, detect concepts (DP, Graph Traversal, Recursion, etc.), and calculate Big-O complexity.
-*   **Fast dynamic quizzes**: Integrated with **Groq** for near-instant MCQ generation based on your live code.
-*   **Context-Aware**: Analyzes the function or block you're currently working on.
-*   **MCQ Quiz System**: Tests your knowledge with relevant multiple-choice questions.
-*   **Smart Triggers**: Only prompts you when it detects meaningful algorithm patterns.
-*   **Customizable Modes**: Choose between "Gen-Z", "Mentor", and "Interview" personalities.
-- **Sidebar webview panel**: A modern-looking Algo-Sentry panel that explains what the extension is doing and what patterns it focuses on.
+## 💡 The Motive 
 
-## Requirements
+Developers often memorize syntax or copy-paste algorithm implementations without understanding the core trade-offs. The original goal of this project was to detect patterns and give quizzes, but that quickly became a repetitive, unhelpful "topic detector". 
 
-- Node.js (LTS version is recommended).
-- VS Code (1.85.0 or newer recommended).
-- A running FastAPI backend exposing `POST /analyze` (see `backend_stub/`).
+**The new motive** is to build a genuine learning companion that forces you to understand the *Why*, *What*, and *How* of your code:
+👉 **Why** did you use a HashMap instead of an Array?
+👉 **What** happens to your execution time if `n` scales to 1 million?
+👉 **How** efficient is the `.append()` operation you just placed inside a loop?
 
-### Smarter MCQs with Google Gemini or OpenAI
+Algo-Sentry makes you articulate your reasoning, cementing fundamental computer science concepts as you type.
 
-1.  Navigate to the `backend_stub` directory:
+---
+
+## 🏗️ How It Was Built: The 3-Layer Architecture
+
+To make this feel like a blazing-fast, deterministic mentor rather than a laggy, hallucinating LLM wrapper, Algo-Sentry was completely rebuilt using a strict **3-Layer Hybrid Pipeline**:
+
+### Layer 1: The Atomic Analyzer (Speed & Precision)
+*   **Zero AI Overhead:** Runs completely locally on the Python backend in **<10ms**.
+*   **Multi-Language AST & Regex:** Uses Python's native `ast` module (and highly-tuned Regular Expressions for Java and C++) to traverse your code and detect *atomic* choices: initializing a `vector<int>`, writing a `while` loop, invoking `.sort()`, or doing binary fraction operations.
+*   **The Source of Truth:** It passes a definitive array of features (e.g., `["dict_init", "nested_loop"]`) to the AI layers so they don't have to guess what pattern you are writing.
+
+### Layer 2: The Socratic Engine (Groq / Llama 3.3)
+*   **Fast Question Generation:** Using Groq's insanely fast inference, Layer 2 takes the atomic features and generates an array of 2 to 4 sequential, open-ended questions.
+*   **Language-Agnostic:** Prompt-engineered to ignore syntax trivia (like *"What does range() do?"*) and strictly ask concept-level algorithmic questions.
+*   **Anti-Repetition Memory:** Tracks your recent question history locally to ensure you don't get asked the same concepts redundantly.
+
+### Layer 3: The Validation Mentor (Gemini / Groq)
+*   **Natural Language Evaluation:** The VS Code interface presents the questions via a sequential input box loop. You type out your reasoning in human language (e.g., *"Because it's O(1) lookup"*).
+*   **Deep Reasoning:** The backend maps your answer against the actual code snippet context, sending it to Gemini (or a fast fallback model) to evaluate your logic. It responds with personalized feedback—either enthusiastic positive reinforcement or a gentle, code-specific correction.
+
+---
+
+## 🚀 Key Features
+
+*   **Multi-Language Support:** Instantly understands Python (`.py`), Java (`.java`), and C++ (`.cpp`, `.cc`, `.h`) structural choices.
+*   **Socratic Flow:** Replaces standard "A/B/C" multiple choice clicks with requiring you to type out your actual logic.
+*   **Non-Intrusive UX:** Operates silently in the background (debounced analysis) and respectfully prompts you via simple corner notifications only when meaningful structural code is detected. No command palettes, no interrupted typing.
+*   **Dynamic Personalities:** Mentors you in a tone of your choice (Gen-Z slang, Professional Mentor, or FAANG Interviewer).
+
+---
+
+## 🛠️ Getting Started
+
+### 1. Backend Setup
+1.  Navigate into the `backend_stub` directory:
     ```bash
     cd backend_stub
     ```
-2.  Install the required Python packages:
+2.  Install the required packages:
     ```bash
     pip install -r requirements.txt
     ```
-3.  Set up your API keys in a `.env` file inside `backend_stub`:
+3.  Set up your `.env` file with your API keys:
     ```env
-    GOOGLE_API_KEY=your-gemini-api-key
-    GROQ_API_KEY=your-groq-api-key
+    GOOGLE_API_KEY=your-gemini-key
+    GROQ_API_KEY=your-groq-key
     ```
-4.  Start the FastAPI server:
+4.  Run the FastAPI layer:
     ```bash
     uvicorn main:app --reload --port 8000
     ```
-- **OpenAI:** Set `OPENAI_API_KEY` instead; the backend will use it if `GOOGLE_API_KEY` is not set.
-- **Force provider:** Set `LLM_PROVIDER=google` or `LLM_PROVIDER=openai` to use only that API.
 
-Example FastAPI stub:
+### 2. Extension Setup
+1. Open the root project folder in VS Code.
+2. Install dependencies and compile:
+    ```bash
+    npm install
+    npm run compile
+    ```
+3. Press **`F5`** to launch the Extension Development Host.
+4. **Test it out:** Open a `.py` or `.java` or `.cpp` file, write a loop or initialize a data structure, and wait 2 seconds for the status bar to parse your code. Accept the prompt to begin the Socratic loop!
 
-```python
-from fastapi import FastAPI
-from pydantic import BaseModel
+---
 
-app = FastAPI()
+## ⚙️ Configuration
+You can tweak Algo-Sentry in your VS Code Settings:
+- `algosentry.backendUrl` – Point to your local FastAPI server.
+- `algosentry.personality` – Set the mentor's tone.
+- `algosentry.quizCooldownSeconds` – Control how often you want to be interrupted.
 
-
-class AnalyzeRequest(BaseModel):
-    code: str
-    language: str | None = None
-    fileName: str | None = None
-    difficulty: str | None = None
-
-
-class AnalyzeResponse(BaseModel):
-    pattern: str | None = None
-    complexity: str | None = None
-    spaceComplexity: str | None = None
-    suggestion: str | None = None
-    question: str | None = None
-    concept: str | None = None
-    tip: str | None = None
-
-
-@app.post("/analyze", response_model=AnalyzeResponse)
-def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
-    # TODO: replace stub with real analysis & pattern detection
-    if "for" in req.code and "for" in req.code.split("for", 1)[1]:
-        return AnalyzeResponse(
-            pattern="Nested loop detected",
-            complexity="O(n^2)",
-            suggestion="Consider using a hash map to reduce nested scans.",
-            question="What is the time complexity of this nested loop?"
-        )
-    return AnalyzeResponse(
-        pattern="Simple scan",
-        complexity="O(n)",
-        question="Could this be improved with a different data structure?"
-    )
-```
-
-## Getting Started (Development)
-
-1. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-2. **Compile the extension**
-
-   ```bash
-   npm run compile
-   ```
-
-3. **Launch the Extension Development Host**
-
-   - Open this folder in VS Code.
-   - Press `F5` to start debugging.
-   - A new VS Code window (Extension Development Host) will open.
-
-4. **Use Algo-Sentry**
-
-   - Start your FastAPI backend (by default at `http://localhost:8000/analyze` or update the setting).
-   - In the Extension Development Host, open or create a file with some DSA code (loops, recursion, etc.).
-   - Start typing; after a short pause (default: 2s debounce), Algo-Sentry will send your code to the backend.
-   - Watch for:
-     - Status bar updates (`Algo-Sentry: ...`) on the left.
-     - Popup questions and suggestions.
-   - Open the sidebar panel via the command palette:
-     - `Ctrl+Shift+P` → **Algo-Sentry: Open Assistant Panel**.
-
-## Configuration
-
-In VS Code settings (search for “Algo-Sentry”) you can change:
-
-- `algosentry.backendUrl` – URL of your FastAPI `/analyze` endpoint.
-- `algosentry.personality` – `"genz" | "mentor" | "interview"`.
-- `algosentry.difficulty` – `"beginner" | "intermediate" | "advanced"`.
-- `algosentry.analysisDebounceMs` – debounce time in milliseconds (e.g. 2000).
-- `algosentry.enableStatusBar` – enable/disable status bar feedback.
-
-## Packaging
-
-To build a `.vsix` package:
-
-```bash
-npm run compile
-npm install -g vsce   # if not installed
-vsce package
-```
-
-This will create a file like `algo-sentry-0.0.1.vsix`.
-
-You can then install it in VS Code:
-
-- Go to the Extensions view.
-- Click the `...` menu → **Install from VSIX...**.
-- Select the generated `.vsix` file.
-
-## Next Steps / Ideas
-
-- Deeper AST-based analysis for multiple languages.
-- More fine-grained question sets per concept and difficulty.
-- History view of past feedback & answered questions in the panel.
-- Per-language tuning and test-case integration.
-
+*(Packaged manually via `vsce package` for standalone `.vsix` distribution).*
