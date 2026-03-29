@@ -31,7 +31,6 @@ interface AlgoSentryValidateResponse {
 }
 
 let statusBarItem: vscode.StatusBarItem | undefined;
-let analysisTimeout: NodeJS.Timeout | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 
 /** Max number of recent question texts to send to backend to avoid repeats */
@@ -43,12 +42,10 @@ let extensionContext: vscode.ExtensionContext | undefined;
 
 /** User chose "Disable questions for this session" — no prompts until restart */
 let questionsDisabledForSession = false;
-/** Last time we showed the "Want to try a quiz?" prompt (for cooldown) */
+/** Last time a quiz question was shown (for cooldown between questions) */
 let lastQuizPromptTime = 0;
-/** Last time the user edited a document (for "actively coding" check) */
-let lastEditTime = 0;
-/** Timer for periodic question offers; cleared on deactivate */
-let periodicQuestionTimer: ReturnType<typeof setInterval> | undefined;
+/** 25-second countdown timer; reset on every code change */
+let periodicQuestionTimer: ReturnType<typeof setTimeout> | undefined;
 
 function getRecentQuestions(): string[] {
   if (!extensionContext) return [];
@@ -76,9 +73,9 @@ function getConfig(): AlgoSentryConfig {
     difficulty: config.get<AlgoSentryDifficulty>("difficulty", "beginner"),
     debounceMs: config.get<number>("analysisDebounceMs", 2000),
     enableStatusBar: config.get<boolean>("enableStatusBar", true),
-    quizCooldownSeconds: Math.max(60, Math.min(600, config.get<number>("quizCooldownSeconds", 90))),
-    periodicQuestionIntervalSeconds: Math.max(30, Math.min(300, config.get<number>("periodicQuestionIntervalSeconds", 30))),
-    idleThresholdSeconds: Math.max(30, Math.min(600, config.get<number>("idleThresholdSeconds", 120))),
+    quizCooldownSeconds: Math.max(25, Math.min(600, config.get<number>("quizCooldownSeconds", 25))),
+    periodicQuestionIntervalSeconds: Math.max(25, Math.min(300, config.get<number>("periodicQuestionIntervalSeconds", 25))),
+    idleThresholdSeconds: Math.max(25, Math.min(600, config.get<number>("idleThresholdSeconds", 60))),
   };
 }
 
@@ -163,16 +160,20 @@ function getCodeContext(editor: vscode.TextEditor): { code: string; cursorLine: 
 async function analyzeActiveDocument(forceShowQuiz = false) {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    log("No active editor — open a code file and try again.");
-    vscode.window.showWarningMessage("Algo-Sentry: Open a code file first, then click the status bar or run \"Algo-Sentry: Analyze current file now\".");
+    if (forceShowQuiz) {
+      // Called manually by user — show a helpful message
+      vscode.window.showWarningMessage("Code Sentinel: Open a code file first.");
+    }
+    // Called by timer — silently skip
     return;
   }
 
   const document = editor.document;
   const fullCode = document.getText();
   if (!fullCode.trim()) {
-    log("Active file is empty — add some code and try again.");
-    vscode.window.showWarningMessage("Algo-Sentry: The current file is empty. Add some code and try again.");
+    if (forceShowQuiz) {
+      vscode.window.showWarningMessage("Code Sentinel: The current file is empty. Add some code first.");
+    }
     return;
   }
 
@@ -213,104 +214,101 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
 
     let userWantsQuiz = false;
 
-    if (forceShowQuiz && isMeaningfulPattern) {
-      userWantsQuiz = true;
-    } else if (isMeaningfulPattern) {
-      if (questionsDisabledForSession) {
-        log("Quiz skipped — questions disabled for this session.");
-        return;
-      }
+    if (!isMeaningfulPattern) {
+      log("Quiz skipped — no meaningful algorithm pattern detected.");
+    } else if (questionsDisabledForSession) {
+      log("Quiz skipped — questions disabled for this session.");
+    } else {
       const cooldownMs = cfg.quizCooldownSeconds * 1000;
       const now = Date.now();
-      if (now - lastQuizPromptTime < cooldownMs && !forceShowQuiz) {
+      if (!forceShowQuiz && now - lastQuizPromptTime < cooldownMs) {
         log(`Quiz prompt skipped — cooldown (${cfg.quizCooldownSeconds}s) not elapsed.`);
-        return;
-      }
-
-      const promptMessage = "Quick check based on your code 👀 Want to try a quick DSA question?";
-      const userChoice = await vscode.window.showInformationMessage(
-        `Algo-Sentry 🤖\n${promptMessage}`,
-        "Yes, ask me",
-        "Not now",
-        "Disable questions for this session"
-      );
-
-      if (userChoice === "Disable questions for this session") {
-        questionsDisabledForSession = true;
-        lastQuizPromptTime = now;
-        vscode.window.showInformationMessage("Algo-Sentry: No more questions this session. Restart the editor to re-enable.");
-        return;
-      }
-      if (userChoice === "Not now") {
-        lastQuizPromptTime = now;
-        return;
-      }
-      if (userChoice === "Yes, ask me") {
+      } else {
         lastQuizPromptTime = now;
         userWantsQuiz = true;
       }
-    } else {
-      log("Quiz skipped — no meaningful algorithm pattern detected.");
     }
 
     if (userWantsQuiz) {
-      // Prompt user with loading status
-      status.text = "Algo-Sentry: Preparing questions...";
-      
+      status.text = "Code Sentinel: Loading question...";
+
       const socraticRes = await axios.post<AlgoSentrySocraticResponse>(`${cfg.backendUrl.replace("/analyze", "")}/generate_questions`, {
-          code,
-          features,
-          language: document.languageId,
-          recent_questions: recentQuestions.length > 0 ? recentQuestions : undefined,
-          personality: cfg.personality,
+        code,
+        features,
+        language: document.languageId,
+        recent_questions: recentQuestions.length > 0 ? recentQuestions : undefined,
+        personality: cfg.personality,
       }, { timeout: 25000 });
-      
+
       const sData = socraticRes.data;
       if (sData && sData.questions && sData.questions.length > 0) {
         for (let i = 0; i < sData.questions.length; i++) {
           const q = sData.questions[i];
           pushRecentQuestion(q);
-          
-          const userAnswer = await vscode.window.showInputBox({
-            title: `Algo-Sentry Mentor (${i + 1}/${sData.questions.length})`,
-            prompt: q,
-            placeHolder: "Type your reasoning here (or hit ESC to cancel)...",
-            ignoreFocusOut: true
-          });
-          
-          if (!userAnswer) {
-            // User cancelled
+
+          // Step 1: Show the question as a notification with Answer / Skip / Disable
+          const choice = await vscode.window.showInformationMessage(
+            `Quick question 🤔\n${q}`,
+            "Answer",
+            "Skip",
+            "Disable"
+          );
+
+          if (choice === "Disable") {
+            questionsDisabledForSession = true;
+            vscode.window.showInformationMessage("Code Sentinel: Questions are off for this session. Restart VS Code to re-enable.");
             break;
           }
-          
-          status.text = "Algo-Sentry: Validating...";
+
+          if (choice !== "Answer") {
+            // User chose Skip or dismissed — move on
+            break;
+          }
+
+          // Step 2: User chose Answer — open the input box
+          status.text = "Code Sentinel: Waiting for your answer...";
+          const userAnswer = await vscode.window.showInputBox({
+            title: `Code Sentinel — Question ${i + 1} of ${sData.questions.length}`,
+            prompt: q,
+            placeHolder: "Type your answer here, or press Escape to skip...",
+            ignoreFocusOut: true
+          });
+
+          if (!userAnswer) {
+            break;
+          }
+
+          // Step 3: Validate answer
+          status.text = "Code Sentinel: Checking your answer...";
           const valRes = await axios.post<AlgoSentryValidateResponse>(`${cfg.backendUrl.replace("/analyze", "")}/validate`, {
-              user_answer: userAnswer,
-              question: q,
-              code: codeSnippet,
-              features,
-              language: document.languageId,
-              personality: cfg.personality,
+            user_answer: userAnswer,
+            question: q,
+            code: codeSnippet,
+            features,
+            language: document.languageId,
+            personality: cfg.personality,
           }, { timeout: 15000 });
-          
+
           if (i < sData.questions.length - 1) {
-            const btn = await vscode.window.showInformationMessage(`Algo-Sentry 🤖\n${valRes.data.feedback}`, "Next Question");
-            if (btn !== "Next Question") {
+            const next = await vscode.window.showInformationMessage(
+              `Code Sentinel 💡\n${valRes.data.feedback}`,
+              "Next Question",
+              "Stop"
+            );
+            if (next !== "Next Question") {
               break;
             }
           } else {
-            vscode.window.showInformationMessage(`Algo-Sentry 🤖\n${valRes.data.feedback}`);
+            vscode.window.showInformationMessage(`Code Sentinel 💡\n${valRes.data.feedback}`);
           }
         }
-        status.text = "Algo-Sentry: Ready";
+        status.text = "Code Sentinel: Ready";
       }
     } else if (forceShowQuiz && !isMeaningfulPattern) {
-        vscode.window.showInformationMessage(
-          "Algo-Sentry: Analysis done. No relevant decisions detected here for a Socratic check.",
-          "Analyze again"
-        ).then((choice) => {
-          if (choice === "Analyze again") analyzeActiveDocument();
-        });
+      vscode.window.showInformationMessage(
+        "Code Sentinel: No algorithm patterns found here yet. Keep coding! 💻",
+        "OK"
+      );
     }
 
   } catch (err: any) {
@@ -331,14 +329,21 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
   }
 }
 
-function scheduleAnalysis() {
-  if (analysisTimeout) {
-    clearTimeout(analysisTimeout);
+function scheduleQuestionTimer() {
+  // Reset the 25-second countdown every time the user types.
+  // The question fires once after the user has paused for 25 seconds.
+  if (periodicQuestionTimer) {
+    clearTimeout(periodicQuestionTimer);
   }
   const cfg = getConfig();
-  analysisTimeout = setTimeout(() => {
-    analyzeActiveDocument();
-  }, cfg.debounceMs);
+  periodicQuestionTimer = setTimeout(async () => {
+    if (questionsDisabledForSession) return;
+    const editor = vscode.window.activeTextEditor;
+    if (!editor?.document.getText().trim()) return;
+    // Fire the question, then restart the countdown
+    await analyzeActiveDocument(true);
+    scheduleQuestionTimer();
+  }, cfg.periodicQuestionIntervalSeconds * 1000);
 }
 
 function createOrRevealPanel(context: vscode.ExtensionContext) {
@@ -506,16 +511,15 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   const changeSubscription = vscode.workspace.onDidChangeTextDocument(() => {
-    lastEditTime = Date.now();
-    scheduleAnalysis();
+    scheduleQuestionTimer(); // Reset 25-second timer on every code change
   });
 
   const activeEditorSubscription = vscode.window.onDidChangeActiveTextEditor(() => {
-    scheduleAnalysis();
+    scheduleQuestionTimer();
   });
 
   const openDocSubscription = vscode.workspace.onDidOpenTextDocument((doc) => {
-    if (doc.languageId && doc.getText().trim()) scheduleAnalysis();
+    if (doc.languageId && doc.getText().trim()) scheduleQuestionTimer();
   });
 
   const openPanelCommand = vscode.commands.registerCommand("algosentry.openPanel", () => {
@@ -523,31 +527,17 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   const analyzeNowCommand = vscode.commands.registerCommand("algosentry.analyzeNow", () => {
-    if (analysisTimeout) {
-      clearTimeout(analysisTimeout);
-      analysisTimeout = undefined;
+    if (periodicQuestionTimer) {
+      clearTimeout(periodicQuestionTimer);
+      periodicQuestionTimer = undefined;
     }
     analyzeActiveDocument(true);
   });
 
   extensionContext = context;
 
-  // Periodic question mode: every N seconds, if user is actively coding, offer a new question
-  function runPeriodicQuestionCheck() {
-    if (questionsDisabledForSession) return;
-    const editor = vscode.window.activeTextEditor;
-    if (!editor?.document.getText().trim()) return;
-    const cfg = getConfig();
-    const idleMs = cfg.idleThresholdSeconds * 1000;
-    if (Date.now() - lastEditTime > idleMs) {
-      log("Periodic question skipped — editor idle (no recent edit).");
-      return;
-    }
-    analyzeActiveDocument(false);
-  }
-
-  const intervalSec = getConfig().periodicQuestionIntervalSeconds;
-  periodicQuestionTimer = setInterval(runPeriodicQuestionCheck, intervalSec * 1000);
+  // No separate periodic timer needed — scheduleQuestionTimer() resets itself after each question.
+  // It is started automatically on the first code change via onDidChangeTextDocument.
 
   context.subscriptions.push(
     changeSubscription,
@@ -558,7 +548,7 @@ export function activate(context: vscode.ExtensionContext) {
     {
       dispose() {
         if (periodicQuestionTimer) {
-          clearInterval(periodicQuestionTimer);
+          clearTimeout(periodicQuestionTimer);
           periodicQuestionTimer = undefined;
         }
       },
@@ -571,11 +561,8 @@ export function deactivate() {
     statusBarItem.dispose();
     statusBarItem = undefined;
   }
-  if (analysisTimeout) {
-    clearTimeout(analysisTimeout);
-  }
   if (periodicQuestionTimer) {
-    clearInterval(periodicQuestionTimer);
+    clearTimeout(periodicQuestionTimer);
     periodicQuestionTimer = undefined;
   }
   outputChannel = undefined;
