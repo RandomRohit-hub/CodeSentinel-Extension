@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
 import axios from "axios";
 
-type AlgoSentryPersonality = "genz" | "mentor" | "interview";
-type AlgoSentryDifficulty = "beginner" | "intermediate" | "advanced";
+type CodeSentinalPersonality = "genz" | "mentor" | "interview";
+type CodeSentinalDifficulty = "beginner" | "intermediate" | "advanced";
 
-interface AlgoSentryConfig {
+interface CodeSentinalConfig {
   backendUrl: string;
-  personality: AlgoSentryPersonality;
-  difficulty: AlgoSentryDifficulty;
+  personality: CodeSentinalPersonality;
+  difficulty: CodeSentinalDifficulty;
   debounceMs: number;
   enableStatusBar: boolean;
   quizCooldownSeconds: number;
@@ -15,18 +15,18 @@ interface AlgoSentryConfig {
   idleThresholdSeconds: number;
 }
 
-interface AlgoSentryAnalysisResponse {
+interface CodeSentinalAnalysisResponse {
   features: string[];
   concept: string;
   confidence: number;
   is_meaningful_dsa: boolean;
 }
 
-interface AlgoSentrySocraticResponse {
+interface CodeSentinalSocraticResponse {
   questions: string[];
 }
 
-interface AlgoSentryValidateResponse {
+interface CodeSentinalValidateResponse {
   feedback: string;
 }
 
@@ -49,7 +49,7 @@ let periodicQuestionTimer: ReturnType<typeof setTimeout> | undefined;
 
 function getRecentQuestions(): string[] {
   if (!extensionContext) return [];
-  const raw = extensionContext.globalState.get<string[]>("algosentry.recentQuestions", []);
+  const raw = extensionContext.globalState.get<string[]>("codesentinal.recentQuestions", []);
   return Array.isArray(raw) ? raw.slice(-RECENT_QUESTIONS_MAX) : [];
 }
 
@@ -57,20 +57,20 @@ function pushRecentQuestion(question: string): void {
   if (!extensionContext || !question.trim()) return;
   const recent = getRecentQuestions();
   const next = [...recent.filter((q) => q !== question), question].slice(-RECENT_QUESTIONS_MAX);
-  extensionContext.globalState.update("algosentry.recentQuestions", next);
+  extensionContext.globalState.update("codesentinal.recentQuestions", next);
 }
 
 function log(msg: string) {
-  if (!outputChannel) outputChannel = vscode.window.createOutputChannel("Algo-Sentry");
+  if (!outputChannel) outputChannel = vscode.window.createOutputChannel("Code Sentinal");
   outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${msg}`);
 }
 
-function getConfig(): AlgoSentryConfig {
-  const config = vscode.workspace.getConfiguration("algosentry");
+function getConfig(): CodeSentinalConfig {
+  const config = vscode.workspace.getConfiguration("codesentinal");
   return {
     backendUrl: config.get<string>("backendUrl", "http://localhost:8000/analyze"),
-    personality: config.get<AlgoSentryPersonality>("personality", "genz"),
-    difficulty: config.get<AlgoSentryDifficulty>("difficulty", "beginner"),
+    personality: config.get<CodeSentinalPersonality>("personality", "genz"),
+    difficulty: config.get<CodeSentinalDifficulty>("difficulty", "beginner"),
     debounceMs: config.get<number>("analysisDebounceMs", 2000),
     enableStatusBar: config.get<boolean>("enableStatusBar", true),
     quizCooldownSeconds: Math.max(25, Math.min(600, config.get<number>("quizCooldownSeconds", 25))),
@@ -82,9 +82,9 @@ function getConfig(): AlgoSentryConfig {
 function ensureStatusBarItem(): vscode.StatusBarItem {
   if (!statusBarItem) {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    statusBarItem.text = "Algo-Sentry: Click to analyze";
+    statusBarItem.text = "Code Sentinal: Click to analyze";
     statusBarItem.tooltip = "Click to analyze current file and get DSA feedback / quiz";
-    statusBarItem.command = "algosentry.analyzeNow";
+    statusBarItem.command = "codesentinal.analyzeNow";
     statusBarItem.show();
   }
   return statusBarItem;
@@ -162,7 +162,7 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
   if (!editor) {
     if (forceShowQuiz) {
       // Called manually by user — show a helpful message
-      vscode.window.showWarningMessage("Code Sentinel: Open a code file first.");
+      vscode.window.showWarningMessage("Code Sentinal: Open a code file first.");
     }
     // Called by timer — silently skip
     return;
@@ -172,7 +172,7 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
   const fullCode = document.getText();
   if (!fullCode.trim()) {
     if (forceShowQuiz) {
-      vscode.window.showWarningMessage("Code Sentinel: The current file is empty. Add some code first.");
+      vscode.window.showWarningMessage("Code Sentinal: The current file is empty. Add some code first.");
     }
     return;
   }
@@ -185,12 +185,12 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
 
   const status = ensureStatusBarItem();
   if (cfg.enableStatusBar) {
-    status.text = "Algo-Sentry: Analyzing…";
+    status.text = "Code Sentinal: Analyzing…";
     status.show();
   }
 
   try {
-    const response = await axios.post<AlgoSentryAnalysisResponse>(cfg.backendUrl, {
+    const response = await axios.post<CodeSentinalAnalysisResponse>(cfg.backendUrl, {
       code,
       language: document.languageId,
       fileName: document.fileName,
@@ -208,7 +208,7 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
     log(`Layer 1 response: features=[${features.join(", ")}], meaningful=${isMeaningfulPattern}`);
 
     if (cfg.enableStatusBar) {
-      status.text = `Algo-Sentry: Analyzing...`;
+      status.text = `Code Sentinal: Analyzing...`;
       status.show();
     }
 
@@ -230,9 +230,9 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
     }
 
     if (userWantsQuiz) {
-      status.text = "Code Sentinel: Loading question...";
+      status.text = "Code Sentinal: Loading question...";
 
-      const socraticRes = await axios.post<AlgoSentrySocraticResponse>(`${cfg.backendUrl.replace("/analyze", "")}/generate_questions`, {
+      const socraticRes = await axios.post<CodeSentinalSocraticResponse>(`${cfg.backendUrl.replace("/analyze", "")}/generate_questions`, {
         code,
         features,
         language: document.languageId,
@@ -256,7 +256,7 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
 
           if (choice === "Disable") {
             questionsDisabledForSession = true;
-            vscode.window.showInformationMessage("Code Sentinel: Questions are off for this session. Restart VS Code to re-enable.");
+            vscode.window.showInformationMessage("Code Sentinal: Questions are off for this session. Restart VS Code to re-enable.");
             break;
           }
 
@@ -266,9 +266,9 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
           }
 
           // Step 2: User chose Answer — open the input box
-          status.text = "Code Sentinel: Waiting for your answer...";
+          status.text = "Code Sentinal: Waiting for your answer...";
           const userAnswer = await vscode.window.showInputBox({
-            title: `Code Sentinel — Question ${i + 1} of ${sData.questions.length}`,
+            title: `Code Sentinal — Question ${i + 1} of ${sData.questions.length}`,
             prompt: q,
             placeHolder: "Type your answer here, or press Escape to skip...",
             ignoreFocusOut: true
@@ -279,8 +279,8 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
           }
 
           // Step 3: Validate answer
-          status.text = "Code Sentinel: Checking your answer...";
-          const valRes = await axios.post<AlgoSentryValidateResponse>(`${cfg.backendUrl.replace("/analyze", "")}/validate`, {
+          status.text = "Code Sentinal: Checking your answer...";
+          const valRes = await axios.post<CodeSentinalValidateResponse>(`${cfg.backendUrl.replace("/analyze", "")}/validate`, {
             user_answer: userAnswer,
             question: q,
             code: codeSnippet,
@@ -291,7 +291,7 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
 
           if (i < sData.questions.length - 1) {
             const next = await vscode.window.showInformationMessage(
-              `Code Sentinel 💡\n${valRes.data.feedback}`,
+              `Code Sentinal 💡\n${valRes.data.feedback}`,
               "Next Question",
               "Stop"
             );
@@ -299,14 +299,14 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
               break;
             }
           } else {
-            vscode.window.showInformationMessage(`Code Sentinel 💡\n${valRes.data.feedback}`);
+            vscode.window.showInformationMessage(`Code Sentinal 💡\n${valRes.data.feedback}`);
           }
         }
-        status.text = "Code Sentinel: Ready";
+        status.text = "Code Sentinal: Ready";
       }
     } else if (forceShowQuiz && !isMeaningfulPattern) {
       vscode.window.showInformationMessage(
-        "Code Sentinel: No algorithm patterns found here yet. Keep coding! 💻",
+        "Code Sentinal: No algorithm patterns found here yet. Keep coding! 💻",
         "OK"
       );
     }
@@ -314,16 +314,16 @@ async function analyzeActiveDocument(forceShowQuiz = false) {
   } catch (err: any) {
     log(`Backend error: ${err?.message ?? err}`);
     if (cfg.enableStatusBar) {
-      status.text = "Algo-Sentry: Backend unreachable";
+      status.text = "Code Sentinal: Backend unreachable";
       status.show();
     }
     // Always notify so user knows why there are no quizzes/feedback
     const msg = axios.isAxiosError(err) && err.code === "ECONNREFUSED"
-      ? `Algo-Sentry: Backend not running. Start your FastAPI server at ${cfg.backendUrl.replace(/\/analyze.*$/, "")} to get analysis and quizzes.`
-      : "Algo-Sentry: Could not reach backend. Check that the FastAPI server is running at the URL in settings.";
+      ? `Code Sentinal: Backend not running. Start your FastAPI server at ${cfg.backendUrl.replace(/\/analyze.*$/, "")} to get analysis and quizzes.`
+      : "Code Sentinal: Could not reach backend. Check that the FastAPI server is running at the URL in settings.";
     vscode.window.showWarningMessage(msg, "Open settings").then((choice) => {
       if (choice === "Open settings") {
-        vscode.commands.executeCommand("workbench.action.openSettings", "algosentry.backendUrl");
+        vscode.commands.executeCommand("workbench.action.openSettings", "codesentinal.backendUrl");
       }
     });
   }
@@ -348,8 +348,8 @@ function scheduleQuestionTimer() {
 
 function createOrRevealPanel(context: vscode.ExtensionContext) {
   const panel = vscode.window.createWebviewPanel(
-    "algoSentryPanel",
-    "Algo-Sentry",
+    "codeSentinalPanel",
+    "Code Sentinal",
     vscode.ViewColumn.Two,
     {
       enableScripts: true,
@@ -361,7 +361,7 @@ function createOrRevealPanel(context: vscode.ExtensionContext) {
   panel.webview.html = getWebviewHtml(cfg);
 }
 
-function getWebviewHtml(cfg: AlgoSentryConfig): string {
+function getWebviewHtml(cfg: CodeSentinalConfig): string {
   const personalityLabel =
     cfg.personality === "genz"
       ? "Gen-Z"
@@ -374,7 +374,7 @@ function getWebviewHtml(cfg: AlgoSentryConfig): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Algo-Sentry</title>
+    <title>Code Sentinal</title>
     <style>
       body {
         margin: 0;
@@ -457,7 +457,7 @@ function getWebviewHtml(cfg: AlgoSentryConfig): string {
   <body>
     <div class="container">
       <div class="header">
-        <div class="title">Algo-Sentry</div>
+        <div class="title">Code Sentinal</div>
         <div class="badge-row">
           <div class="badge">${personalityLabel} mode</div>
           <div class="badge">${cfg.difficulty} level</div>
@@ -477,7 +477,7 @@ function getWebviewHtml(cfg: AlgoSentryConfig): string {
       </div>
 
       <div class="card">
-        <div class="card-label">What Algo-Sentry watches for</div>
+        <div class="card-label">What Code Sentinal watches for</div>
         <div class="metric-row">
           <div class="metric-pill">Nested loops</div>
           <div class="metric-pill">Recursion</div>
@@ -494,7 +494,7 @@ function getWebviewHtml(cfg: AlgoSentryConfig): string {
 
       <div class="footer">
         Tips:
-        <br />• Adjust personality & difficulty in VS Code settings (search for "Algo-Sentry").
+        <br />• Adjust personality & difficulty in VS Code settings (search for "Code Sentinal").
         <br />• Ensure your FastAPI backend is running at the configured URL.
       </div>
     </div>
@@ -503,7 +503,7 @@ function getWebviewHtml(cfg: AlgoSentryConfig): string {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log("Algo-Sentry activated");
+  console.log("Code Sentinal activated");
 
   const cfg = getConfig();
   if (cfg.enableStatusBar) {
@@ -522,11 +522,11 @@ export function activate(context: vscode.ExtensionContext) {
     if (doc.languageId && doc.getText().trim()) scheduleQuestionTimer();
   });
 
-  const openPanelCommand = vscode.commands.registerCommand("algosentry.openPanel", () => {
+  const openPanelCommand = vscode.commands.registerCommand("codesentinal.openPanel", () => {
     createOrRevealPanel(context);
   });
 
-  const analyzeNowCommand = vscode.commands.registerCommand("algosentry.analyzeNow", () => {
+  const analyzeNowCommand = vscode.commands.registerCommand("codesentinal.analyzeNow", () => {
     if (periodicQuestionTimer) {
       clearTimeout(periodicQuestionTimer);
       periodicQuestionTimer = undefined;

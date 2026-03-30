@@ -2,49 +2,38 @@
 
 > **Improve your DSA understanding while you code.**
 
-**Code Sentinal** is an AI-powered VS Code extension that helps you learn Data Structures and Algorithms (DSA) in real time.
-Instead of just checking errors, it reads your code and asks simple questions to help you understand your logic.
+Code Sentinal is not just a syntax checker—it is a **real-time, multi-language Socratic AI Mentor** living inside your VS Code. Instead of blindly pointing out errors or giving you the answers, it tracks your logic, recognizes your architectural decisions, and actively challenges your thinking with context-aware, open-ended questions.
 
 ---
 
 ## 💡 The Motive
 
-Many developers write code without fully understanding why it works.
-
-Code Sentinal is built to change that.
+Many developers write code without fully understanding why it works. Code Sentinal is built to change that.
 
 It asks small, meaningful questions while you code:
+👉 **Why** did you use a HashMap instead of an Array?
+👉 **What** happens to your execution time if `n` scales to 1 million?
+👉 **How** efficient is the `.append()` operation you just placed inside a loop?
 
-* Why did you choose this data structure?
-* What is the time complexity of this loop?
-* Can this be made faster?
-
-The goal is to make you think about your decisions and build strong fundamentals.
+Code Sentinal makes you articulate your reasoning, cementing fundamental computer science concepts as you type.
 
 ---
 
 ## 🏗️ How It Works (3-Layer System)
 
-To make the extension fast and accurate, it uses a **3-layer architecture**:
+To make this feel like a blazing-fast, deterministic mentor rather than a laggy, hallucinating LLM wrapper, Code Sentinal uses a strict **3-Layer Hybrid Pipeline**:
 
 ### Layer 1: Code Analyzer (Fast & Local)
-
 * Runs instantly (no AI delay)
 * Detects loops, recursion, data structures, and patterns
 * Works across Python, Java, and C++
 
----
-
 ### Layer 2: Question Generator (Groq AI)
-
 * Generates simple, clear questions
 * Based on your actual code
 * Avoids repeating the same questions
 
----
-
 ### Layer 3: Answer Evaluation (Gemini / Groq)
-
 * Checks your answer
 * Gives clear feedback
 * Explains mistakes in simple terms
@@ -64,10 +53,7 @@ To make the extension fast and accurate, it uses a **3-layer architecture**:
 
 ## 🧠 How It Helps
 
-Code Sentinal does not give answers directly.
-
-It helps you:
-
+Code Sentinal does not give answers directly. It helps you:
 * think about your code
 * understand complexity
 * choose better data structures
@@ -121,21 +107,19 @@ Press **F5** to run the extension.
 
 ## ⚙️ Configuration
 
-You can change settings in VS Code:
-
-* `codesentinal.backendUrl` → backend server URL
-* `codesentinal.quizCooldownSeconds` → question interval
+You can tweak Code Sentinal in your VS Code Settings:
+- `codesentinal.backendUrl` – Point to your local FastAPI server.
+- `codesentinal.personality` – Set the mentor's tone.
+- `codesentinal.quizCooldownSeconds` – Control how often you want to be interrupted.
 
 ---
 
 ## 🎯 Final Goal
 
 Code Sentinal acts like:
-
 👉 **A simple mentor sitting beside you while you code**
 
 It helps you understand:
-
 * why your code works
 * how efficient it is
 * how it can be improved
