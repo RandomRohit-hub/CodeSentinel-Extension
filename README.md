@@ -1,4 +1,4 @@
-# Algo-Sentry VS Code Extension 🤖
+# Code Sentinel VS Code Extension 🤖
 
 > **Transforming the way you write and understand Data Structures & Algorithms.**
 
